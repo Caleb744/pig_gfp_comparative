@@ -16,7 +16,7 @@ library(tidyverse)
 
 prefix <- "9823"
 ################################################################################################
-#Integration after filtering. We used the non filtered for one set of analyses and the filtered for another. Both processes are shown though they are functionally the same after subsetting. 
+#Integration after filtering.  
 #####INTEGRATION FILTER APPLIED
 #SCT Transform regressing out library size, percentage intergenic, and mitochondrial genes.
 combined <- readRDS(paste0("./",prefix,"_pre_QC.rds"))
