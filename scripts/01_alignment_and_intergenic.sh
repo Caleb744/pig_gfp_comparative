@@ -62,7 +62,7 @@ export CONDA_BASE=$(conda info --base)
 source ${CONDA_BASE}/etc/profile.d/conda.sh
 conda activate ./CellBender
 cd $outdir
-cellbender remove-background --input $outdir/outs/raw_feature_bc_matrix.h5 --output $outdir/outs/${s}.h5 --learning-rate 1e-4 --fpr 0.01
+cellbender remove-background --input $outdir/outs/raw_feature_bc_matrix.h5 --output $outdir/outs/${s}.h5 --learning-rate 2.5e-5 --fpr 0.01
 ptrepack --complevel 5 $outdir/outs/${s}_filtered.h5:/matrix $outdir/outs/${s}_seurat.h5:/matrix
 perl "./scripts/1_mt_gene_extract.pl" --GTF ./Alignement/GENOME/Sus_scrofa.112.GFP.gtf --prefix ${s}
 EOF
