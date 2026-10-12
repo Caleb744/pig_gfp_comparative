@@ -7,24 +7,62 @@ library(ggplot2)
 library(enrichplot)
 library(biomaRt)
 #####Function to convert genes to the right ID for use by enrichment tools.
+mart_labels <- read.delim(
+  "./mart_export.txt",
+  sep = "\t",
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
+
+mart_map <- data.frame(
+  ensembl = sub("\\..*$", "", mart_labels[[1]]),
+  entrez  = trimws(as.character(mart_labels[[3]])),
+  symbol  = trimws(as.character(mart_labels[[4]])),
+  stringsAsFactors = FALSE
+)
+
+mart_map$entrez[mart_map$entrez %in% c("", "NA")] <- NA_character_
+mart_map$symbol[mart_map$symbol == ""] <- NA_character_
+mart_map <- mart_map[!is.na(mart_map$entrez), ]
+
 convert_ids <- function(genes) {
-  cat("[ID] Converting genes...\n")
-  genes <- genes[!genes %in% c(gene_target, "(Intercept)")] #We expect GFP and the intercept to be differnet so remove them
-  ens_ids <- grep("^ENS", genes, value = TRUE) #Find Gene ID genes
-  sym_ids <- setdiff(genes, ens_ids) #Find Gene Symbol genes
-  df <- data.frame(original = character(), entrez = character()) #Empty dataframe for the conversion
+  cat("[ID] Converting genes using local mapping...\n")
+  genes <- unique(genes[!is.na(genes) & !genes %in% c("GFP", "(Intercept)")])
+  ens_ids <- grep("^ENS", genes, value = TRUE)
+  sym_ids <- setdiff(genes, ens_ids)
+  out <- data.frame(original = character(), entrez = character(), stringsAsFactors = FALSE)
+  # Ensembl IDs: remove version suffix for lookup
   if (length(ens_ids) > 0) {
-    mart <- biomaRt::useMart("ensembl", dataset = "sscrofa_gene_ensembl") #Select bio mart with relevant information
-    ens_map <- biomaRt::getBM(attributes = c("ensembl_gene_id", "entrezgene_id"), filters = "ensembl_gene_id", values = ens_ids, mart = mart) #Pull out needed ID information
-    df <- rbind(df, data.frame(original = ens_map$ensembl_gene_id, entrez = as.character(ens_map$entrezgene_id))) #Bind IDs together
+    ens_lookup <- data.frame(original = ens_ids, ensembl = sub("\\..*$", "", ens_ids), stringsAsFactors = FALSE)
+    ens_result <- merge(ens_lookup, mart_map[, c("ensembl", "entrez")], by = "ensembl")
+    out <- rbind(out, ens_result[, c("original", "entrez")])
   }
+  # Gene symbols: use local mapping first
   if (length(sym_ids) > 0) {
-    sym_map <- bitr(sym_ids, fromType="SYMBOL", toType="ENTREZID", OrgDb=org.Ss.eg.db) #Convert the symbol to an ID
-    df <- rbind(df, data.frame(original = sym_map$SYMBOL, entrez = sym_map$ENTREZID)) #Bind IDs together
+    sym_lookup <- data.frame(original = sym_ids, symbol = sym_ids, stringsAsFactors = FALSE)
+    sym_result <- merge(sym_lookup, mart_map[!is.na(mart_map$symbol), c("symbol", "entrez")], by = "symbol")
+    out <- rbind(out, sym_result[, c("original", "entrez")])
+    # Fallback for symbols not resolved by the local mapping
+    missing_sym <- setdiff(sym_ids, sym_result$original)
+    if (length(missing_sym) > 0) {
+      fallback <- tryCatch(
+        clusterProfiler::bitr(missing_sym, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Ss.eg.db),
+        error = function(e) NULL
+      )
+      if (!is.null(fallback) && nrow(fallback) > 0) {
+        out <- rbind(
+          out,
+          data.frame(original = fallback$SYMBOL, entrez = as.character(fallback$ENTREZID), stringsAsFactors = FALSE)
+        )
+      }
+    }
   }
-  df <- df[!is.na(df$entrez), ] #Output only those with ID readable by the tools
-  df
+  out$entrez <- as.character(out$entrez)
+  out <- out[!is.na(out$entrez) & out$entrez != "", ]
+  out <- unique(out)
+  out
 }
+
 
 #####GENE LIST PRIOTIZATION
 for (s in c("GFP", "TUBB", "NUCKS1")) {
@@ -38,7 +76,7 @@ for (s in c("GFP", "TUBB", "NUCKS1")) {
 	write.csv(DEG[DEG$Significant, ], paste0("DEGs_", gene_target, "_SIG_GENES.csv"), quote = FALSE, row.names = FALSE) #Write signficant genes
 	DEG <- DEG[DEG$X != gene_target, ]
 	# Compute ranking metric
-	DEG$rank_stat <- sign(DEG$avg_log2FC) * (-log10(DEG$p_val_adj))
+	DEG$rank_stat <- DEG$avg_log2FC * (-log10(DEG$p_val_adj))
 
 	#Volcano plot of all dataset results
 	p_volcano <- ggplot(DEG, aes(x = avg_log2FC, y = -log10(p_val_adj), color = Significant)) + geom_point(alpha = 0.7) + scale_color_manual(values = c("grey", "red")) + geom_vline(xintercept = c(-0.5, 0.5), linetype = "dashed") + geom_hline(yintercept = -log10(0.05), linetype = "dashed") + labs(x = print0("log2 Fold Change (", gene_target, "+ vs ", gene_target ,"−)"), y = "-log10(FDR)", color = "Status") + theme_minimal()
@@ -86,7 +124,7 @@ for (s in c("GFP", "TUBB", "NUCKS1")) {
 	  p_volcano <- ggplot(df, aes(avg_log2FC, -log10(p_val_adj))) + geom_point(aes(color = Significant), alpha = 0.7) + scale_color_manual(values = c("grey", "red"))
 	  ggsave(paste0("GSEA_",gene_target,"/", plot_name, "_volcano.png"), p_volcano)
 	  # Compute ranking metric
-	  df$rank_stat <- sign(df$avg_log2FC) * (-log10(df$p_val_adj))
+	  df$rank_stat <- df$avg_log2FC * (-log10(df$p_val_adj))
 	  if (all(df$rank_stat == 0, na.rm = T)) {
 		message("Skipping ", ct, " — no signal for ranking / GSEA_", gene_target, " .")
 		next
@@ -104,9 +142,10 @@ for (s in c("GFP", "TUBB", "NUCKS1")) {
 	  }
 	  # For GO/KEGG over-representation: only significant gene Entrez
 	  sig_entrez <- merged$entrez[merged$Significant]
+	  universe_entrez <- merged$entrez #Addint the universe
 	  if (length(sig_entrez) > 0) {
-		go <- tryCatch(enrichGO(sig_entrez, OrgDb = org.Ss.eg.db, keyType = "ENTREZID"), error = function(e) NULL)
-		kegg <- tryCatch(enrichKEGG(sig_entrez, organism = "ssc", pAdjustMethod = "BH"), error = function(e) NULL)
+		go <- tryCatch(enrichGO(sig_entrez, universe = universe_entrez, OrgDb = org.Ss.eg.db, keyType = "ENTREZID"), error = function(e) NULL)
+		kegg <- tryCatch(enrichKEGG(sig_entrez, universe = universe_entrez, organism = "ssc", pAdjustMethod = "BH"), error = function(e) NULL)
 		if (!is.null(go)) write.csv(as.data.frame(go), paste0("GSEA_",gene_target,"/", plot_name, "_go_results.csv"), row.names = FALSE)
 		if (!is.null(kegg)) write.csv(as.data.frame(kegg), paste0("GSEA_",gene_target,"/", plot_name, "_kegg_results.csv"), row.names = FALSE)
 	  } else {

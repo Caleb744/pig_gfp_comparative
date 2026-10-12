@@ -77,21 +77,93 @@ png("NUCKS1_intensity_UMAP.png", width=800, height=700)
 FeaturePlot(SO, feature = 'NUCKS1', cols = c("lightgrey", "royalblue4")) + theme(text = element_text(size = 16)) + labs(title = NULL, x = "UMAP 1", y = "UMAP 2")
 dev.off()
 
+celltype_qcGFP <- SO@meta.data %>%
+  group_by(CT, GFP_binary) %>%
+  summarise(n_cells = n(), median_UMI = median(nCount_RNA), median_genes = median(nFeature_RNA), median_mt = median(percent.mt), .groups = "drop")
+write.csv(celltype_qcGFP, "GFP_Depth_CT_stats.csv")
+
+
+celltype_qcTUBB <- SO@meta.data %>%
+  group_by(CT, TUBB_binary) %>%
+  summarise(n_cells = n(), median_UMI = median(nCount_RNA), median_genes = median(nFeature_RNA), median_mt = median(percent.mt), .groups = "drop")
+write.csv(celltype_qcGFP, "TUBB_Depth_CT_stats.csv")
+
+
+celltype_qcNUCKS1 <- SO@meta.data %>%
+  group_by(CT, NUCKS1_binary) %>%
+  summarise(n_cells = n(), median_UMI = median(nCount_RNA), median_genes = median(nFeature_RNA), median_mt = median(percent.mt), .groups = "drop")
+write.csv(celltype_qcGFP, "NUCKS1_Depth_CT_stats.csv")
+
+for (g in c("GFP", "TUBB", "NUCKS1")) {
+	gene_target <- g
+	gene_pos <- paste0(gene_target, "+")
+	gene_neg <- paste0(gene_target, "-")
+	celltypes <- names(which(table(SO$CT) > 10)) # Cell types with >10 cells
+
+	detection_models <- lapply(celltypes, function(ct) {
+	  dat <- subset(SO@meta.data, CT == ct)
+	  dat$GFP_binary_num <- ifelse(dat$GFP_binary == gene_pos, 1, 0)
+	  dat$log10_UMI <- log10(dat$nCount_RNA)
+	  # Only use covariates with >1 level in this cell type
+	  covars <- c("orig.ident") #Turns out tissue and orig.ident are colinear since individuals sampled tissues.
+	  covars <- covars[
+		sapply(covars, function(v) length(unique(dat[[v]])) > 1)
+	  ]
+	  formula <- as.formula(
+		paste(
+		  "GFP_binary_num ~ log10_UMI",
+		  if (length(covars) > 0)
+			paste("+", paste(covars, collapse = " + "))
+		  else ""
+		)
+	  )
+	  message(ct, ": ", deparse(formula))
+	  tryCatch(
+		glm(formula, data = dat, family = binomial),
+		error = function(e) {
+		  message("ERROR in ", ct, ": ", e$message)
+		  NULL
+		}
+	  )
+	})
+
+	names(detection_models) <- celltypes
+
+	lapply(detection_models, function(x) {
+	  summary(x)$coefficients["log10_UMI", ]
+	})
+
+	detection_results <- do.call(rbind, lapply(names(detection_models), function(ct) {
+	  x <- summary(detection_models[[ct]])$coefficients["log10_UMI", ]
+	  data.frame(
+		celltype = ct,
+		beta = x["Estimate"],
+		SE = x["Std. Error"],
+		z = x["z value"],
+		p = x["Pr(>|z|)"]
+	  )
+	}))
+
+	rownames(detection_results) <- NULL
+	detection_results$OR_10x_UMI <- exp(detection_results$beta * log(10))
+	write.csv(detection_results, paste0(gene_target, "_CT_detection.csv"))
+}
 
 SO <- FindVariableFeatures(SO, nfeatures = 3000)
 top_genes <- VariableFeatures(SO) #Vector list
-
+SO$log10nCount <- log10(SO$nCount_RNA)
 #####DEG ANALYSIS
 # Compare GFP+ vs GFP- within all cells. Differnece has to be at least greater than |0.25| with genes in at least 10% of the cells sampled. We used the MAST algortithm as it is a GLMM and used expeirmental variables as covariates
 for (s in c("GFP", "TUBB", "NUCKS1")) {
 	gene_target <- s
 	gene_pos <- paste0(gene_target, "+")
 	gene_neg <- paste0(gene_target, "-")
-	DEG_all <- FindMarkers(SO, group.by = paste0(gene_target, "_binary"), ident.1 = gene_pos, ident.2 = gene_neg, logfc.threshold = 0.25, min.pct = 0.1, features = top_genes, test.use = "MAST", latent.vars = c("orig.ident", "nCount_RNA", "tissue"))
+
+	DEG_all <- FindMarkers(SO, group.by = paste0(gene_target, "_binary"), ident.1 = gene_pos, ident.2 = gene_neg, logfc.threshold = 0, min.pct = 0, features = top_genes, test.use = "MAST", latent.vars = c("orig.ident", "log10nCount"))
 	write.csv(DEG_all, paste0("DEGs_", gene_target, "_MAST.csv"), row.names = TRUE) #Save results
 
 	celltypes <- names(which(table(SO$CT) > 10)) # Cell types with >10 cells
-	latent_all <- c("orig.ident", "nCount_RNA", "tissue")
+	latent_all <- c("orig.ident", "log10nCount")
 
 	DEG_list <- lapply(celltypes, function(ct) {
 	  message("Processing cluster: ", ct)
@@ -121,9 +193,9 @@ for (s in c("GFP", "TUBB", "NUCKS1")) {
 	  res <- tryCatch(
 		{
 		  if (length(valid_latent) > 0) {
-			FindMarkers(subset_cells, ident.1 = gene_pos, ident.2 = gene_neg, group.by = paste0(gene_target, "_binary"), test.use = "MAST", features = top_genes, latent.vars = valid_latent)
+			FindMarkers(subset_cells, ident.1 = gene_pos, ident.2 = gene_neg, logfc.threshold = 0, min.pct = 0, group.by = paste0(gene_target, "_binary"), test.use = "MAST", features = top_genes, latent.vars = valid_latent)
 		  } else {
-			FindMarkers(subset_cells, ident.1 = gene_pos, ident.2 = gene_neg, group.by = paste0(gene_target, "_binary"), test.use = "MAST", features = top_genes)
+			FindMarkers(subset_cells, ident.1 = gene_pos, ident.2 = gene_neg, logfc.threshold = 0, min.pct = 0, group.by = paste0(gene_target, "_binary"), test.use = "MAST", features = top_genes)
 		  }
 		},
 		error = function(e) {
@@ -165,6 +237,6 @@ for (s in c("GFP", "TUBB", "NUCKS1")) {
 	}
 	# View and write results results
 	resultdf
-	write.csv(resultdf, paste0(gene_target, "_CT_stats.csv")
+	write.csv(resultdf, paste0(gene_target, "_CT_stats.csv"))
 }
 #+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+
