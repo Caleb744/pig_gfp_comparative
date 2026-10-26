@@ -77,7 +77,7 @@ for(sp in unique(combined$species)) {
     cts <- levels(Idents(obj.sp))
     for(ct in cts) {
         ncells <- sum(Idents(obj.sp) == ct)
-        if(ncells < 10) {
+        if(ncells < 50) {
             message("Skipping ", ct)
             next
         }

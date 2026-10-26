@@ -151,6 +151,25 @@ HBA_obj$CT <- paste0(HBA_obj$species, "_", HBA_obj$CT) #Add species back to anno
 MBA_obj$CT <- paste0(MBA_obj$species, "_", MBA_obj$CT) #Add species back to annotation at top level
 PBA_obj$CT <- paste0(PBA_obj$species, "_", PBA_obj$CT) 
 
+cell_counts <- table(HBA_obj$CT)
+# Keep cell types with more than 50 cells
+keep_types <- names(cell_counts[cell_counts > 50])
+# Subset the Seurat object
+HBA_obj <- subset(HBA_obj, subset = CT %in% keep_types)
+
+cell_counts <- table(MBA_obj$CT)
+# Keep cell types with more than 50 cells
+keep_types <- names(cell_counts[cell_counts > 50])
+# Subset the Seurat object
+MBA_obj <- subset(MBA_obj, subset = CT %in% keep_types)
+
+cell_counts <- table(PBA_obj$Cluster)
+# Keep cell types with more than 50 cells
+keep_types <- names(cell_counts[cell_counts > 50])
+# Subset the Seurat object
+PBA_obj <- subset(PBA_obj, subset = Cluster %in% keep_types)
+
+
 
 ################################################################################################
 #CELL TYPE EXPRESSION COMPARIOSN. So this is the average expression of most all to most expressed genes per cell grouping. 
@@ -340,14 +359,6 @@ avg_MBA  <- get_ct_pseudobulk(MBA_obj3) #MOUSE
 avg_MBA <- DGEList(avg_MBA)
 avg_MBA <- calcNormFactors(avg_MBA)
 avg_MBA <- cpm(avg_MBA, log=TRUE, prior.count = 1)
-avg_HBAT  <- get_ct_pseudobulk(HBA_obj3, ct_col="CT_toplevel_species") #HUMAN
-avg_HBAT <- DGEList(avg_HBAT)
-avg_HBAT <- calcNormFactors(avg_HBAT)
-avg_HBAT <- cpm(avg_HBAT, log=TRUE, prior.count = 1)
-avg_MBAT  <- get_ct_pseudobulk(MBA_obj3, ct_col="CT_toplevel_species") #MOUSE
-avg_MBAT <- DGEList(avg_MBAT)
-avg_MBAT <- calcNormFactors(avg_MBAT)
-avg_MBAT <- cpm(avg_MBAT, log=TRUE, prior.count = 1)
 
 avg_PBA  <- get_ct_pseudobulk(PBA_obj3, 'CT') #PIG
 avg_PBA <- DGEList(avg_PBA)

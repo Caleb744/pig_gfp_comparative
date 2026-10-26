@@ -17,6 +17,26 @@ HBA_obj <- readRDS("./HBA_INT_STR.rds")
 HBA_obj$CT <- paste0(HBA_obj$species, "_", HBA_obj$CT)
 MBA_obj <- readRDS("./MBA_INT_STR.rds")
 MBA_obj$CT <- paste0(MBA_obj$species, "_", MBA_obj$CT)
+
+cell_counts <- table(HBA_obj$CT)
+# Keep cell types with more than 50 cells
+keep_types <- names(cell_counts[cell_counts > 50])
+# Subset the Seurat object
+HBA_obj <- subset(HBA_obj, subset = CT %in% keep_types)
+
+cell_counts <- table(MBA_obj$CT)
+# Keep cell types with more than 50 cells
+keep_types <- names(cell_counts[cell_counts > 50])
+# Subset the Seurat object
+MBA_obj <- subset(MBA_obj, subset = CT %in% keep_types)
+
+cell_counts <- table(PBA_obj$Cluster)
+# Keep cell types with more than 50 cells
+keep_types <- names(cell_counts[cell_counts > 50])
+# Subset the Seurat object
+PBA_obj <- subset(PBA_obj, subset = Cluster %in% keep_types)
+
+
 get_ct_pseudobulk <- function(obj, ct_col="CT"){
   counts <- GetAssayData(obj, layer="counts")  #Pull expression data
   ct <- obj[[ct_col]][,1] #Extract metadata column defining cell types
@@ -33,19 +53,6 @@ avg_MBA <- DGEList(avg_MBA)
 avg_MBA <- calcNormFactors(avg_MBA)
 avg_MBA <- cpm(avg_MBA, log=TRUE, prior.count = 1)
 
-HBAT_obj <- HBA_obj
-HBAT_obj$CT <- HBAT_obj$CT_toplevel_species
-avg_HBAT <- get_ct_pseudobulk(HBAT_obj) #HUMAN
-avg_HBAT <- DGEList(avg_HBAT)
-avg_HBAT <- calcNormFactors(avg_HBAT)
-avg_HBAT <- cpm(avg_HBAT, log=TRUE, prior.count = 1)
-
-MBAT_obj <- MBA_obj
-MBAT_obj$CT <- MBAT_obj$CT_toplevel_species
-avg_MBAT <- get_ct_pseudobulk(MBAT_obj) #MOUSE
-avg_MBAT <- DGEList(avg_MBAT)
-avg_MBAT <- calcNormFactors(avg_MBAT)
-avg_MBAT <- cpm(avg_MBAT, log=TRUE, prior.count = 1)
 
 avg_PBA <- get_ct_pseudobulk(PBA_obj, 'CT') #PIG
 avg_PBA <- DGEList(avg_PBA)
@@ -148,7 +155,7 @@ extract_all_programs <- function(objs, ct_col = "CT", auc_cutoff = 0.8, n_genes 
 
 # Extract programs per species
 programs <- extract_all_programs(objs = objs, ct_col = "CT", auc_cutoff = 0.8, n_genes = 50)
-#programs <- programs[-c(5,6)]
+
 names(programs) <- names(objs)
 canonical_ct <- function(x) {
   gsub("-", "_", x)
@@ -299,13 +306,6 @@ genes <- unique(unlist(list(
   H2Psubset$shared_genes[[1]],
   H2Csubset$shared_genes[[1]]
 )))
-
-annot <- getBM(
-  attributes = c("ensembl_gene_id", "hgnc_symbol", "description"),
-  filters = "ensembl_gene_id",
-  values = genes,
-  mart = mart
-)
 
 build_ct_matrix <- function(corr_list, value_col = "cor", use_valid = TRUE) {
   df <- bind_rows(corr_list, .id = "comparison")
