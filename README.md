@@ -1,5 +1,5 @@
 # pig_gfp_comparative
-The scripts and environments to rerun analyses associated with "Transgene Expression Characterization and Cross-Species Striatal Gene Expression in eGFP-edited Pigs"
+The scripts and environments to rerun analyses associated with "The use of a GFP-expressing pig model to perform cross-species brain transcriptomic comparisons and cell-type-resolved transgene expression."
 ## Overview
 Scripts are numbered, with a master bash file to run each script. These correspond to the manuscript's Methods sections and their script titles. While each script should be runnable, we suggest a mindful approach for your system and desired directory structure. 
 ## Requirements
